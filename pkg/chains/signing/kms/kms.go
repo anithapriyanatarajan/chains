@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -95,12 +98,30 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 	// pass through configuration options to RPCAuth used by KMS in sigstore
 	rpcAuth := options.RPCAuth{
 		Address: cfg.Auth.Address,
-		Token:   cfg.Auth.Token,
+		//Token:   cfg.Auth.Token,
 		OIDC: options.RPCAuthOIDC{
 			Role: cfg.Auth.OIDC.Role,
 			Path: cfg.Auth.OIDC.Path,
 		},
 	}
+
+	// get token from a mounted secret at signers.kms.auth.token-dir or
+	// as direct value set from signers.kms.auth.token.
+	// If both values are set, priority will be given to token-dir.
+
+	//var referenceRegex = regexp.MustCompile(`^hashivault://(?P<path>\w(([\w-.]+)?\w)?)$`)
+	//if referenceRegex.MatchString(cfg.KMSRef) && cfg.Auth.TokenDir != "" {
+
+	if cfg.Auth.TokenDir != "" {
+		vaultToken, err := getVaultToken(cfg.Auth.TokenDir)
+		if err != nil {
+			return nil, err
+		}
+		rpcAuth.Token = vaultToken
+	} else {
+		rpcAuth.Token = cfg.Auth.Token
+	}
+
 	// get token from spire
 	if cfg.Auth.Spire.Sock != "" {
 		token, err := newSpireToken(ctx, cfg)
@@ -118,6 +139,38 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 	return &Signer{
 		SignerVerifier: k,
 	}, nil
+}
+
+// getVaultToken retreives token from the given mount path
+func getVaultToken(dir string) (string, error) {
+	vaultEnv := "token"
+	stat, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// If directory does not exist, then create it. This is needed for
+			// the fsnotify watcher.
+			// fsnotify does not receive events if the path that it's watching
+			// is created later.
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return "", err
+			}
+			return "", nil
+		}
+		return "", err
+	}
+	// If the path exists but is not a directory, then throw an error
+	if !stat.IsDir() {
+		return "", fmt.Errorf("path specified %s is not a directory", dir)
+	}
+
+	filePath := filepath.Join(dir, vaultEnv)
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	// A trailing newline is fairly common in mounted files, let's remove it.
+	fileDataNormalized := strings.TrimSuffix(string(fileData), "\n")
+	return fileDataNormalized, nil
 }
 
 // newSpireToken retrieves an SVID token from Spire
