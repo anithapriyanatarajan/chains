@@ -105,19 +105,16 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 		},
 	}
 
-	// get token from a mounted secret at signers.kms.auth.token-dir or
+	// get token from file VAULT_TOKEN, a mounted secret at signers.kms.auth.token-dir or
 	// as direct value set from signers.kms.auth.token.
 	// If both values are set, priority will be given to token-dir.
 
-	//var referenceRegex = regexp.MustCompile(`^hashivault://(?P<path>\w(([\w-.]+)?\w)?)$`)
-	//if referenceRegex.MatchString(cfg.KMSRef) && cfg.Auth.TokenDir != "" {
-
 	if cfg.Auth.TokenDir != "" {
-		vaultToken, err := getVaultToken(cfg.Auth.TokenDir)
+		rpcAuthToken, err := getRPCAuthToken(cfg.Auth.TokenDir)
 		if err != nil {
 			return nil, err
 		}
-		rpcAuth.Token = vaultToken
+		rpcAuth.Token = rpcAuthToken
 	} else {
 		rpcAuth.Token = cfg.Auth.Token
 	}
@@ -142,8 +139,8 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 }
 
 // getVaultToken retreives token from the given mount path
-func getVaultToken(dir string) (string, error) {
-	vaultEnv := "token"
+func getRPCAuthToken(dir string) (string, error) {
+	vaultEnv := "VAULT_TOKEN"
 	stat, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {

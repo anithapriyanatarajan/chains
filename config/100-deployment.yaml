@@ -92,8 +92,6 @@ spec:
           volumeMounts:
             - name: signing-secrets
               mountPath: /etc/signing-secrets
-            - name: vault-token-path
-              mountPath: /etc/vault-token
             - name: oidc-info
               mountPath: /var/run/sigstore/cosign
           env:
@@ -121,9 +119,6 @@ spec:
         - name: signing-secrets
           secret:
             secretName: signing-secrets
-        - name: vault-token-path
-          secret:
-            secretName: vault-token
         - name: oidc-info
           projected:
             sources:
