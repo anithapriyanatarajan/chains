@@ -22,9 +22,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/kms"
 	_ "github.com/sigstore/sigstore/pkg/signature/kms/aws"
@@ -33,6 +35,7 @@ import (
 	_ "github.com/sigstore/sigstore/pkg/signature/kms/hashivault"
 	"github.com/sigstore/sigstore/pkg/signature/options"
 	"github.com/tektoncd/chains/pkg/config"
+	"knative.dev/pkg/logging"
 
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -115,6 +118,10 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 			return nil, err
 		}
 		rpcAuth.Token = rpcAuthToken
+		_, err = watchSigner(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		rpcAuth.Token = cfg.Auth.Token
 	}
@@ -136,6 +143,89 @@ func NewSigner(ctx context.Context, cfg config.KMSSigner) (*Signer, error) {
 	return &Signer{
 		SignerVerifier: k,
 	}, nil
+}
+
+// ErrNothingToWatch is an error that's returned when the signers do not have anything to "watch"
+var ErrNothingToWatch = fmt.Errorf("signer has nothing to watch")
+
+// WatchSigner returns a channel that receives a new signer each time it needs to be updated
+func watchSigner(ctx context.Context, cfg config.KMSSigner) (chan *Signer, error) {
+	logger := logging.FromContext(ctx)
+
+	// Set up watcher only when `signers.kms.auth.token-dir` is set
+	if cfg.Auth.TokenDir == "" {
+		return nil, ErrNothingToWatch
+	}
+
+	logger.Infof("setting up fsnotify watcher for directory: %s", cfg.Auth.TokenDir)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+
+	pathsToWatch := []string{
+		// token-dir/VAULT_TOKEN is where the VAULT_TOKEN environment
+		// variable is expected to be mounted, either manually or via a Kubernetes secret, etc.
+		filepath.Join(cfg.Auth.TokenDir, "VAULT_TOKEN"),
+		filepath.Join(cfg.Auth.TokenDir, "..data"),
+	}
+
+	singerChan := make(chan *Signer)
+	// Start listening for events.
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				logger.Infof("received event: %s, path: %s", event.Op.String(), event.Name)
+				// Only respond to create/write/remove events in the directory
+				if !(event.Has(fsnotify.Create) || event.Has(fsnotify.Write) || event.Has(fsnotify.Remove)) {
+					continue
+				}
+
+				if !slices.Contains(pathsToWatch, event.Name) {
+					continue
+				}
+
+				updatedEnv, err := getRPCAuthToken(cfg.Auth.TokenDir)
+				if err != nil {
+					logger.Error(err)
+					singerChan <- nil
+				}
+				if updatedEnv != os.Getenv("VAULT_TOKEN") {
+					logger.Infof("directory %s has been updated, reconfiguring rpcAuthToken...", cfg.Auth.TokenDir)
+
+					// Now that TOKEN has been updated, we should update the signer again
+					newSigner, err := NewSigner(ctx, cfg)
+					if err != nil {
+						logger.Error(err)
+						singerChan <- nil
+					} else {
+						// Storing the backend in the signer so everyone has access to the up-to-date backend
+						singerChan <- newSigner
+					}
+				} else {
+					logger.Infof("VAULT_TOKEN has not changed in path: %s, signer auth will not be reconfigured", cfg.Auth.TokenDir)
+				}
+
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				logger.Error(err)
+			}
+		}
+	}()
+
+	// Add a path.
+	err = watcher.Add(cfg.Auth.TokenDir)
+	if err != nil {
+		return nil, err
+	}
+	return singerChan, nil
 }
 
 // getVaultToken retreives token from the given mount path
