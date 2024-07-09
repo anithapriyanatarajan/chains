@@ -163,6 +163,7 @@ func watchSigner(ctx context.Context, cfg config.KMSSigner) (chan *Signer, error
 	if err != nil {
 		return nil, err
 	}
+	defer watcher.Close()
 
 	pathsToWatch := []string{
 		// token-dir/VAULT_TOKEN is where the VAULT_TOKEN environment
