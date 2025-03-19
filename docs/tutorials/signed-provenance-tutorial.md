@@ -136,7 +136,19 @@ rekor-cli search --sha [IMAGE_DIGEST]
 [UUID1]
 [UUID2]
 ```
+```yaml
 
+kind: Namespace
+apiVersion: v1
+metadata:
+<span style="color:green">
+  name: tekton-chains
+</span>
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-chains
+
+```
 The search will print out the UUIDs of matching entries.
 It may take a little guessing, but one of those UUIDs holds the attestation.
 You can see the attestation by using [jq](https://github.com/stedolan/jq):
