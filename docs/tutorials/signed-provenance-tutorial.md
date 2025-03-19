@@ -130,6 +130,8 @@ spec:
 + new_value: "this was added"
   unchanged_value: "this stays the same"
 ```
+```
+```
 
 ```
 To verify the image and the attestation, we'll use `cosign` again:
