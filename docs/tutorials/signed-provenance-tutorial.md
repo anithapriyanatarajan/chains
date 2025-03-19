@@ -113,7 +113,25 @@ kubectl get tr [TASKRUN_NAME] -o json | jq -r .metadata.annotations
   ...
 }
 ```
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app
+spec:
+  containers:
+    - name: app
+      image: nginx:latest
+      ports:
+        - containerPort: 80
+```md
+```diff
+- old_value: "this was removed"
++ new_value: "this was added"
+  unchanged_value: "this stays the same"
+```
 
+```
 To verify the image and the attestation, we'll use `cosign` again:
 
 ```shell
