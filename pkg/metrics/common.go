@@ -38,6 +38,9 @@ const (
 	TlogError            MetricErrorType = "tlog"
 )
 
+// ErrorTypeAttrKey is the OpenTelemetry attribute key used to label error metrics by type.
+const ErrorTypeAttrKey = "error_type"
+
 // Recorder is an interface for any object which may record metrics
 type Recorder interface {
 	RecordCountMetrics(ctx context.Context, MetricType Metric)

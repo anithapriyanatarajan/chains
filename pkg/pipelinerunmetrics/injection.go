@@ -45,6 +45,7 @@ func Get(ctx context.Context) *Recorder {
 	untyped := ctx.Value(RecorderKey{})
 	if untyped == nil {
 		logging.FromContext(ctx).Errorf("Unable to fetch *pipelinerunmetrics.Recorder from context.")
+		return nil
 	}
 	return untyped.(*Recorder)
 }
